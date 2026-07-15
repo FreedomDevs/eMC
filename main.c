@@ -134,7 +134,7 @@ int main() {
         }
 
         if (n == 0) {
-          fprintf(STDERR_FILENO, "Быдло сервер закрыл std out :(");
+          fprintf(stderr, "Быдло сервер закрыл std out :(");
         } else if (errno != EAGAIN) {
           perror("Ошибко с std out сервера");
         }
