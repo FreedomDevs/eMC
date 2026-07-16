@@ -12,15 +12,18 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define PORT 8080
+#define CLIENT_BUF_SIZE 1024
+
 #define CLIENTS_SIZE 10
+#include "initTCP.h"
 
 int setNonBlock(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-int initTcp();
+const char CLIENT_OFERFLOW_ERROR[] =
+    "\00\00\00\01\00\00\00\51Ошибка, количество клиентов";
 
 int main() {
   int pipe_stdin[2];
@@ -76,12 +79,10 @@ int main() {
 
   ev.events = EPOLLIN;
   ev.data.fd = tcp_fd;
-
   epoll_ctl(epfd, EPOLL_CTL_ADD, tcp_fd, &ev);
 
   ev.events = EPOLLIN;
   ev.data.fd = fstdout;
-
   epoll_ctl(epfd, EPOLL_CTL_ADD, fstdout, &ev);
 
   struct epoll_event events[32];
@@ -92,20 +93,21 @@ int main() {
 
   struct ClientInfo {
     int fd;
+    char buf[CLIENT_BUF_SIZE];
+    uint64_t buf_pos;
     bool isSubscribeToLogs;
   };
 
   struct ClientInfo clientns[CLIENTS_SIZE];
-
   for (int i = 0; i < CLIENTS_SIZE; i++) {
     clientns[i].fd = -1;
+    clientns[i].buf_pos = 0;
   }
 
   while (1) {
     int count = epoll_wait(epfd, events, 32, -1);
 
     for (int i = 0; i < count; i++) {
-
       int fd = events[i].data.fd;
 
       if (fd == fstdout) {
@@ -144,7 +146,44 @@ int main() {
           perror("client error");
           continue;
         }
+
+        for (int i = 0;; i++) {
+          if (i == CLIENTS_SIZE) {
+            fprintf(stderr, "Закончилось место для клиентов");
+            write(client, CLIENT_OFERFLOW_ERROR, sizeof(CLIENT_OFERFLOW_ERROR));
+            close(client);
+          }
+
+          if (clientns[i].fd == -1) {
+            clientns[i].fd = client;
+            clientns[i].isSubscribeToLogs = false;
+            break;
+          }
+        }
+
         printf("client %d connected\n", client);
+
+        ev.events = EPOLLIN;
+        ev.data.fd = client;
+        epoll_ctl(epfd, EPOLL_CTL_ADD, client, &ev);
+      } else {
+        for (int i = 0; i < CLIENTS_SIZE; i++) {
+          struct ClientInfo client = clientns[i];
+          if (fd == client.fd) {
+            ssize_t n;
+            while ((n = read(client.fd, client.buf + client.buf_pos,
+                             sizeof(client.buf) - client.buf_pos - 1)) > 0) {
+            }
+
+            if (n == 0) {
+              fprintf(stderr, "Клиент закрыл поток");
+              close(client.fd);
+            } else if (errno != EAGAIN) {
+              perror("Ошибко с клиентом");
+              close(client.fd);
+            }
+          }
+        }
       }
     }
   }
@@ -164,39 +203,4 @@ int main() {
   printf("Hello piska %d\n", status);
 
   return 0;
-}
-
-int initTcp() {
-  int server_fd;
-
-  server_fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (server_fd < 0) {
-    perror("TCP: Socket failed");
-    return 1;
-  }
-
-  struct sockaddr_in addr = {0};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(PORT);
-  addr.sin_addr.s_addr = INADDR_ANY;
-
-  int reuse = 1;
-  setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-  int bind_res = bind(server_fd, (const struct sockaddr *)&addr, sizeof(addr));
-  if (bind_res < 0) {
-    perror("Не удалось прослушать порт");
-    return 1;
-  }
-
-  int qlen = 50;
-  setsockopt(server_fd, SOL_TCP, TCP_FASTOPEN, &qlen, sizeof(qlen));
-
-  int listen_res = listen(server_fd, CLIENTS_SIZE);
-  if (listen_res < 0) {
-    perror("Не удалось прослушать порт");
-    return 1;
-  }
-
-  return server_fd;
 }
