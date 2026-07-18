@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/tcp.h>
+#include <packets.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -16,14 +17,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "monitorings.h"
-
 #include "config.h"
 
 #include "clients.h"
 
 #include "enums.h"
 #include "initSocket.h"
+#include "monitorings.h"
 #include "server_stdout.h"
 
 int setNonBlock(int fd) {
@@ -167,6 +167,9 @@ static inline void process_clent_event(struct ClientInfo *client,
           break;
         case TYPE_SUBSCRIBE_TO_MONITORINGS:
           client->isSubscribeToMonitorings = true;
+          write_as_packet(TYPE_FIRST_MONITORINGS, (char *)&permanentStats,
+                          sizeof(permanentStats));
+          write_packet(client->fd);
           break;
         default:
           fprintf(stderr, "Клиент прислал некорректный тип пакета");
@@ -343,7 +346,7 @@ int main() {
         read(tfd, &exp, sizeof(exp));
         getSliceMonitroings();
 
-        write_as_packet(TYPE_MONITORINFS, (char *)&resSt, sizeof(resSt));
+        write_as_packet(TYPE_MONITORINGS, (char *)&resSt, sizeof(resSt));
 
         for (int i = 0; i < CLIENTS_SIZE; i++) {
           struct ClientInfo *client = &clients[i];
