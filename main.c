@@ -10,10 +10,13 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#include "monitorings.h"
 
 #include "config.h"
 
@@ -162,6 +165,9 @@ static inline void process_clent_event(struct ClientInfo *client,
           }
 
           break;
+        case TYPE_SUBSCRIBE_TO_MONITORINGS:
+          client->isSubscribeToMonitorings = true;
+          break;
         default:
           fprintf(stderr, "Клиент прислал некорректный тип пакета");
           write(client->fd, CLIENT_BAD_REQUEST, sizeof(CLIENT_BAD_REQUEST));
@@ -250,7 +256,20 @@ int main() {
 
   int epfd = epoll_create(32);
 
+  int tfd = timerfd_create(CLOCK_MONOTONIC, 0);
+
+  struct itimerspec ts = {0};
+  ts.it_value.tv_sec = 1;
+  ts.it_interval.tv_sec = 1;
+
+  timerfd_settime(tfd, 0, &ts, NULL);
+
   struct epoll_event ev;
+
+  ev.events = EPOLLIN;
+  ev.data.fd = tfd;
+
+  epoll_ctl(epfd, EPOLL_CTL_ADD, tfd, &ev);
 
   int tcp_fd = -1;
   if (PORT > 0) {
@@ -319,6 +338,28 @@ int main() {
         ev.events = EPOLLIN;
         ev.data.fd = client;
         epoll_ctl(epfd, EPOLL_CTL_ADD, client, &ev);
+      } else if (events[i].data.fd == tfd) {
+        uint64_t exp;
+        read(tfd, &exp, sizeof(exp));
+        getSliceMonitroings();
+
+        write_as_packet(TYPE_MONITORINFS, (char *)&resSt, sizeof(resSt));
+
+        for (int i = 0; i < CLIENTS_SIZE; i++) {
+          struct ClientInfo *client = &clients[i];
+          if (clients[i].fd != -1) {
+            if (clients[i].isSubscribeToMonitorings) {
+              ssize_t wr = write_packet(client->fd);
+
+              if (wr < 0) {
+                perror("Ошибко! при рассылке данных клиенту");
+
+                close(client->fd);
+                client->fd = -1;
+              }
+            }
+          }
+        }
       } else {
         for (int i = 0; i < CLIENTS_SIZE; i++) {
           struct ClientInfo *client = &clients[i];

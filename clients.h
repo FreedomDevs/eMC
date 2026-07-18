@@ -11,6 +11,7 @@ struct ClientInfo {
   char buf[CLIENT_BUF_SIZE];
   uint64_t buf_pos;
   bool isSubscribeToLogs;
+  bool isSubscribeToMonitorings;
 };
 
 static struct ClientInfo clients[CLIENTS_SIZE];
