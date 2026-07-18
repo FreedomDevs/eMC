@@ -15,6 +15,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "config.h"
+
 #include "clients.h"
 
 #include "enums.h"
@@ -216,6 +218,8 @@ int main() {
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
 
+  init_config();
+
   if (pipe(pipe_stdin) == -1) {
     perror("pipe");
     return 1;
@@ -244,19 +248,22 @@ int main() {
   setNonBlock(fstdout);
   setNonBlock(fstdin);
 
-  int tcp_fd = initTcp();
-  setNonBlock(tcp_fd);
-
-  int unix_fd = initUnix();
-  setNonBlock(unix_fd);
-
   int epfd = epoll_create(32);
 
   struct epoll_event ev;
 
-  ev.events = EPOLLIN;
-  ev.data.fd = tcp_fd;
-  epoll_ctl(epfd, EPOLL_CTL_ADD, tcp_fd, &ev);
+  int tcp_fd = -1;
+  if (PORT > 0) {
+    tcp_fd = initTcp(PORT);
+    setNonBlock(tcp_fd);
+
+    ev.events = EPOLLIN;
+    ev.data.fd = tcp_fd;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, tcp_fd, &ev);
+  }
+
+  int unix_fd = initUnix(SOCKET_PATH);
+  setNonBlock(unix_fd);
 
   ev.events = EPOLLIN;
   ev.data.fd = unix_fd;

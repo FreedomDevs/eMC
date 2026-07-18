@@ -7,19 +7,11 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#ifndef PORT
-#define PORT 8085
-#endif
-
-#ifndef PATH
-#define PATH "socket.sock"
-#endif
-
 #ifndef CLIENT_SIZE
 #define CLIENTS_SIZE 10
 #endif
 
-static inline int initTcp() {
+static inline int initTcp(uint16_t PORT) {
   int server_fd = socket(AF_INET6, SOCK_STREAM, 0);
   if (server_fd < 0) {
     perror("TCP: Socket failed");
@@ -52,7 +44,7 @@ static inline int initTcp() {
   return server_fd;
 }
 
-static inline int initUnix() {
+static inline int initUnix(const char *PATH) {
   int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (server_fd < 0) {
     perror("UNIX: Socket failed");
